@@ -25,7 +25,14 @@ from pathlib import Path
 from typing import List
 
 import pandas as pd
-from langdetect import detect, LangDetectException
+
+try:
+    from langdetect import detect, LangDetectException
+    LANGDETECT_AVAILABLE = True
+except ModuleNotFoundError:
+    detect = None  # type: ignore[assignment]
+    LangDetectException = Exception
+    LANGDETECT_AVAILABLE = False
 
 TWITTER_AUTH_TOKEN = os.environ.get("TWITTER_AUTH_TOKEN")
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "tweets-data")
@@ -78,6 +85,8 @@ def build_output_filename(base: str, part: int) -> str:
 
 
 def detect_indonesian(text: str) -> bool:
+    if not LANGDETECT_AVAILABLE:
+        return True
     try:
         return detect(text) == "id"
     except LangDetectException:
@@ -110,6 +119,9 @@ def main() -> int:
     if not TWITTER_AUTH_TOKEN:
         print("Error: TWITTER_AUTH_TOKEN environment variable is required.")
         return 1
+
+    if not LANGDETECT_AVAILABLE:
+        print("Warning: langdetect is not installed. Skip Bahasa Indonesia language filtering.")
 
     output_dir = Path(OUTPUT_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
