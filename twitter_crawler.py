@@ -8,8 +8,10 @@ Environment variables:
   TWITTER_AUTH_TOKEN  - required Twitter/X bearer token
   SEARCH_QUERIES      - optional comma-separated list of full queries
   SEARCH_KEYWORD      - optional search keywords if SEARCH_QUERIES is not set
-  START_YEAR          - optional start year for the date range
-  END_YEAR            - optional end year for the date range
+  START_DATE          - optional start date for the date range (YYYY-MM-DD)
+  END_DATE            - optional end date for the date range (YYYY-MM-DD)
+  START_YEAR          - optional fallback start year for the date range
+  END_YEAR            - optional fallback end year for the date range
   OUTPUT_DIR          - output directory for CSV files
   GDRIVE_DIR          - optional Google Drive directory to copy the final CSV into
   TWEET_LIMIT         - number of tweets per query (default: 15000)
@@ -31,6 +33,8 @@ GDRIVE_DIR = os.environ.get("GDRIVE_DIR", "")
 DEFAULT_LIMIT = int(os.environ.get("TWEET_LIMIT", "15000"))
 SEARCH_QUERIES = os.environ.get("SEARCH_QUERIES", "").strip()
 SEARCH_KEYWORD = os.environ.get("SEARCH_KEYWORD", "").strip()
+START_DATE = os.environ.get("START_DATE", "").strip()
+END_DATE = os.environ.get("END_DATE", "").strip()
 START_YEAR = os.environ.get("START_YEAR", "").strip()
 END_YEAR = os.environ.get("END_YEAR", "").strip()
 
@@ -43,10 +47,14 @@ def build_query_list() -> List[str]:
     if SEARCH_QUERIES:
         return [q.strip() for q in SEARCH_QUERIES.split(",") if q.strip()]
 
-    if SEARCH_KEYWORD or START_YEAR or END_YEAR:
+    if SEARCH_KEYWORD or START_DATE or END_DATE or START_YEAR or END_YEAR:
         query = SEARCH_KEYWORD or '("Kemenlu" OR "@menluRI")'
 
-        if START_YEAR or END_YEAR:
+        if START_DATE or END_DATE:
+            start = START_DATE or END_DATE
+            end = END_DATE or START_DATE
+            query = f"{query} since:{start} until:{end}"
+        elif START_YEAR or END_YEAR:
             start = START_YEAR or END_YEAR
             end = END_YEAR or START_YEAR
             query = f"{query} since:{start}-01-01 until:{end}-12-31"

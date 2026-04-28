@@ -86,8 +86,10 @@ Crawler ini menjalankan `tweet-harvest` untuk mengumpulkan tweet berdasarkan key
 - `TWITTER_AUTH_TOKEN` = token akses API Twitter/X
 - `SEARCH_QUERIES` = query lengkap yang dipisah koma
 - `SEARCH_KEYWORD` = kata kunci pencarian jika `SEARCH_QUERIES` tidak diset
-- `START_YEAR` = tahun mulai
-- `END_YEAR` = tahun selesai
+- `START_DATE` = tanggal mulai (format YYYY-MM-DD)
+- `END_DATE` = tanggal selesai (format YYYY-MM-DD)
+- `START_YEAR` = tahun mulai (fallback kompatibilitas)
+- `END_YEAR` = tahun selesai (fallback kompatibilitas)
 - `OUTPUT_DIR` = folder keluaran CSV
 - `GDRIVE_DIR` = folder Google Drive tujuan
 - `TWEET_LIMIT` = batas tweet per query
@@ -97,8 +99,8 @@ Crawler ini menjalankan `tweet-harvest` untuk mengumpulkan tweet berdasarkan key
 ```bash
 export TWITTER_AUTH_TOKEN="..."
 export SEARCH_KEYWORD='("Kemenlu" OR "@menluRI")'
-export START_YEAR=2024
-export END_YEAR=2025
+export START_DATE=2024-01-01
+export END_DATE=2025-12-31
 python3 twitter_crawler.py
 ```
 

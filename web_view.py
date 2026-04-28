@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import Dict, List
 import os
 import subprocess
+from collections import deque
 
 import pandas as pd
-from flask import Flask, abort, redirect, render_template_string, request, url_for
+from flask import Flask, abort, redirect, render_template_string, request, send_file, url_for
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIRS: Dict[str, Path] = {
@@ -24,168 +25,257 @@ INDEX_PAGE = """
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>glowing-giggle Dashboard</title>
+    <title>X-Insights Crawler Panel</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-H4s3iCkT2R+s4xqyTnUSvkpOTn6fiMpYt32kRm1XQnZcj2/jz4WBOJjCustPaG7j4ZpDYEW5nAXjCeuX7+LZ2w==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
       :root {
         color-scheme: light;
-        font-family: "Segoe UI", system-ui, sans-serif;
-        background: #f2f7fb;
-        color: #111827;
+        font-family: 'Inter', system-ui, sans-serif;
+        background: #eef5fd;
+        color: #0f172a;
       }
       * { box-sizing: border-box; }
-      body { margin: 0; padding: 0; }
-      .page-shell { max-width: 1200px; margin: 0 auto; padding: 24px; }
-      .hero { display: grid; gap: 16px; margin-bottom: 28px; }
-      .hero h1 { margin: 0; font-size: clamp(2rem, 2.4vw, 3rem); letter-spacing: -0.04em; }
-      .hero p { margin: 0; color: #475569; line-height: 1.75; max-width: 760px; }
-      .eyebrow { text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.2em; color: #0f172a; opacity: 0.75; margin-bottom: 6px; }
-      .button-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
-      .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 18px; border-radius: 999px; border: none; background: #2563eb; color: white; text-decoration: none; font-weight: 600; transition: transform 0.2s ease, background 0.2s ease; }
-      .button:hover { background: #1d4ed8; transform: translateY(-1px); }
-      .button-secondary { background: #e2e8f0; color: #0f172a; }
-      .button-secondary:hover { background: #cbd5e1; }
-      .input-row { display: grid; gap: 12px; margin-top: 16px; }
+      html, body { margin: 0; padding: 0; min-height: 100%; }
+      body { background: linear-gradient(180deg, #f8fbff 0%, #eef5fd 100%); }
+      .page-shell { width: min(1200px, 100%); margin: 0 auto; padding: 24px 20px 40px; }
+      .topbar { display: grid; gap: 16px; margin-bottom: 24px; }
+      .eyebrow { margin: 0; text-transform: uppercase; letter-spacing: 0.24em; font-size: 0.8rem; color: #2563eb; font-weight: 700; }
+      h1 { margin: 0; font-size: clamp(2rem, 2.6vw, 2.8rem); line-height: 1.05; }
+      .intro { margin: 12px 0 0; max-width: 760px; color: #475569; line-height: 1.8; }
+      .tab-list { display: flex; flex-wrap: wrap; gap: 12px; }
+      .tab-button { appearance: none; border: none; border-radius: 999px; padding: 12px 18px; font-size: 0.98rem; cursor: pointer; background: #e2e8f0; color: #334155; transition: all 0.2s ease; display: inline-flex; align-items: center; gap: 10px; }
+      .tab-button.active { background: #2563eb; color: white; box-shadow: 0 16px 40px rgba(37, 99, 235, 0.18); }
+      .tab-panel { display: none; animation: fade-in 0.18s ease-in-out; }
+      .tab-panel.active { display: block; }
+      .section-card { background: white; border-radius: 28px; box-shadow: 0 32px 90px rgba(15, 23, 42, 0.08); padding: 26px; margin-bottom: 22px; }
+      .panel-grid { display: grid; gap: 18px; }
+      .stats-grid { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-bottom: 0; }
+      .stat-card { min-height: 120px; padding: 24px; display: grid; gap: 10px; }
+      .stat-card h3 { margin: 0; font-size: 0.9rem; letter-spacing: 0.1em; text-transform: uppercase; color: #64748b; }
+      .stat-card p { margin: 0; font-size: clamp(1.8rem, 2.2vw, 2.4rem); font-weight: 700; color: #0f172a; }
+      .form-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-top: 18px; }
       .form-field { display: grid; gap: 8px; }
-      .form-field label { font-size: 0.95rem; color: #475569; }
-      .form-field input { width: 100%; border: 1px solid #d1d5db; border-radius: 14px; padding: 12px 14px; font-size: 1rem; background: white; color: #111827; }
-      .form-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
-      .control-note { font-size: 0.95rem; color: #64748b; margin-top: 8px; }
-      .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; margin-bottom: 24px; }
-      .stat-card, .section-card { background: white; border-radius: 24px; box-shadow: 0 24px 60px rgba(15, 23, 42, 0.08); padding: 22px; }
-      .stat-card h3 { margin: 0 0 10px; font-size: 0.95rem; color: #475569; text-transform: uppercase; letter-spacing: 0.08em; }
-      .stat-card p { margin: 0; font-size: clamp(1.6rem, 2vw, 2.3rem); font-weight: 700; color: #111827; }
-      .section-card h2 { margin-top: 0; font-size: 1.4rem; }
+      .form-field label { color: #475569; font-size: 0.95rem; }
+      .form-field input { width: 100%; border: 1px solid #cbd5e1; border-radius: 16px; padding: 14px 16px; font-size: 1rem; background: #f8fafc; color: #0f172a; }
+      .form-field input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.08); }
+      .form-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+      .button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 14px 20px; border-radius: 14px; border: none; cursor: pointer; font-weight: 700; transition: transform 0.18s ease, background 0.18s ease; }
+      .button.primary { background: #2563eb; color: white; }
+      .button.primary:hover { background: #1d4ed8; transform: translateY(-1px); }
+      .button.secondary { background: #e2e8f0; color: #334155; }
+      .button.secondary:hover { background: #cbd5e1; }
+      .help-box { display: flex; gap: 14px; align-items: start; padding: 18px; border-radius: 18px; background: #eff6ff; border: 1px solid #dbeafe; color: #1d4ed8; margin-top: 16px; }
+      .help-box strong { color: #1e40af; }
       .table-wrapper { overflow-x: auto; }
-      table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 16px; }
-      th, td { text-align: left; padding: 14px 16px; }
-      th { color: #475569; font-size: 0.95rem; letter-spacing: 0.02em; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; }
+      table { width: 100%; border-collapse: collapse; margin-top: 18px; }
+      th, td { padding: 14px 16px; text-align: left; }
+      th { background: #f8fafc; color: #475569; text-transform: uppercase; font-size: 0.85rem; letter-spacing: 0.08em; border-bottom: 1px solid #e2e8f0; }
       td { border-bottom: 1px solid #f1f5f9; color: #0f172a; }
       tr:hover td { background: #f8fafc; }
-      a { color: #2563eb; text-decoration: none; }
-      a:hover { text-decoration: underline; }
-      .empty-state { padding: 20px 16px; border-radius: 16px; background: #f8fafc; color: #475569; }
-      .tag { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: #eef2ff; color: #4338ca; font-size: 0.92rem; font-weight: 600; }
-      @media (min-width: 640px) { .hero { grid-template-columns: 1.5fr 1fr; align-items: center; } }
+      .tag { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; background: #e0f2fe; color: #1d4ed8; font-size: 0.9rem; }
+      .empty-state { padding: 20px 18px; border-radius: 18px; background: #f8fafc; color: #475569; }
+      @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+      @media (max-width: 720px) { .form-grid { grid-template-columns: 1fr; } .tab-list { justify-content: flex-start; } }
     </style>
   </head>
   <body>
     <div class="page-shell">
-      <header class="hero">
+      <div class="topbar">
         <div>
-          <p class="eyebrow">glowing-giggle dashboard</p>
-          <h1>CSV Crawl Summary & Preview</h1>
-          <p>Review the latest tweet and thread comment exports, check key dataset counts, and open any CSV directly in the browser.</p>
-          <div class="button-row">
-            <a class="button" href="#datasets">Browse datasets</a>
-            <a class="button button-secondary" href="{{ url_for('index') }}">Refresh</a>
-            <a class="button button-secondary" href="{{ url_for('crawl_target', target='threads') }}">Crawl thread comments</a>
-          </div>
-          <form class="input-row" action="{{ url_for('crawl_target', target='tweets') }}" method="get">
-            <div class="form-grid">
-              <div class="form-field">
-                <label for="keyword">Keyword pencarian</label>
-                <input id="keyword" name="keyword" type="text" placeholder="contoh: Kemenlu OR @menluRI" value="{{ request.args.get('keyword', '') }}" />
-              </div>
-              <div class="form-field">
-                <label for="start_year">Tahun mulai</label>
-                <input id="start_year" name="start_year" type="number" min="2008" max="2100" placeholder="2024" value="{{ request.args.get('start_year', '2024') }}" />
-              </div>
-              <div class="form-field">
-                <label for="end_year">Tahun selesai</label>
-                <input id="end_year" name="end_year" type="number" min="2008" max="2100" placeholder="2025" value="{{ request.args.get('end_year', '2025') }}" />
-              </div>
-            </div>
-            <div class="button-row" style="margin-top: 12px;">
-              <button class="button" type="submit">Crawl tweets</button>
-            </div>
-          </form>
-          <form class="input-row" action="{{ url_for('crawl_target', target='threads') }}" method="get">
-            <div class="section-card" style="padding: 18px; margin-top: 12px;">
-              <h2 style="margin-top: 0;">Crawl thread comments</h2>
-              <div class="form-grid">
-                <div class="form-field">
-                  <label for="input_csv">Path CSV input</label>
-                  <input id="input_csv" name="input_csv" type="text" placeholder="tweets-data/KemenluDynamicStance...part1.csv" value="" />
-                </div>
-                <div class="form-field">
-                  <label for="max_threads">Max threads</label>
-                  <input id="max_threads" name="max_threads" type="number" min="0" placeholder="0 = all" value="0" />
-                </div>
-                <div class="form-field">
-                  <label for="tweet_limit">Limit per thread</label>
-                  <input id="tweet_limit" name="tweet_limit" type="number" min="1" placeholder="15000" value="15000" />
-                </div>
-                <div class="form-field">
-                  <label for="gdrive_dir">Google Drive folder (optional)</label>
-                  <input id="gdrive_dir" name="gdrive_dir" type="text" placeholder="/content/drive/MyDrive/dataset/TH/komen/" value="" />
-                </div>
-              </div>
-              <div class="button-row" style="margin-top: 16px;">
-                <button class="button" type="submit">Start comments crawl</button>
-              </div>
-              <p class="control-note">Isi path CSV yang memuat kolom <code>tweet_url</code>. Jika dibiarkan kosong, gunakan environment <code>INPUT_CSV_PATH</code>.</p>
-            </div>
-          </form>
+          <p class="eyebrow">X-Insights Crawler Panel</p>
+          <h1>Dashboard Crawling Twitter/X</h1>
+          <p class="intro">Navigation sudah disederhanakan dengan tab, sehingga Anda dapat fokus ke Crawl Tweets atau Crawl Comments tanpa tampilan yang berantakan.</p>
         </div>
-      </header>
-
-      <div class="stats-grid">
-        <div class="stat-card">
-          <h3>Total CSV files</h3>
-          <p>{{ summary.total_files }}</p>
-        </div>
-        <div class="stat-card">
-          <h3>Total rows available</h3>
-          <p>{{ summary.total_rows }}</p>
-        </div>
-        <div class="stat-card">
-          <h3>Tweet CSV files</h3>
-          <p>{{ summary.tweets_files }}</p>
-        </div>
-        <div class="stat-card">
-          <h3>Thread CSV files</h3>
-          <p>{{ summary.threads_files }}</p>
+        <div class="tab-list">
+          <button type="button" class="tab-button active" data-tab="dashboard"><i class="fa-solid fa-chart-simple"></i> Dashboard</button>
+          <button type="button" class="tab-button" data-tab="crawl-tweets"><i class="fa-solid fa-magnifying-glass"></i> Crawl Tweets</button>
+          <button type="button" class="tab-button" data-tab="crawl-comments"><i class="fa-solid fa-comments"></i> Crawl Comments</button>
         </div>
       </div>
 
-      {% for label, files in files_by_dir.items() %}
-        <section class="section-card" id="datasets">
-          <div style="display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; flex-wrap: wrap;">
-            <div>
-              <h2>{{ label }}</h2>
-              <p style="margin: 0; color: #475569;">{{ files|length }} CSV file{{ 's' if files|length != 1 }}</p>
+      <section id="dashboard" class="tab-panel active">
+        <div class="section-card panel-grid">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <h3>Total CSV files</h3>
+              <p>{{ summary.total_files }}</p>
             </div>
-            {% if files %}
-              <span class="tag">Latest: {{ files[0].name }}</span>
-            {% endif %}
+            <div class="stat-card">
+              <h3>Total rows available</h3>
+              <p>{{ summary.total_rows }}</p>
+            </div>
+            <div class="stat-card">
+              <h3>Tweet CSV files</h3>
+              <p>{{ summary.tweets_files }}</p>
+            </div>
+            <div class="stat-card">
+              <h3>Thread CSV files</h3>
+              <p>{{ summary.threads_files }}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-card">
+          <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap; justify-content:space-between;">
+            <div>
+              <h2>Dataset yang tersedia</h2>
+              <p style="margin:0; color:#475569;">Pilih file untuk melakukan preview atau jalankan crawl baru dari tab yang sesuai.</p>
+            </div>
+            <a class="button secondary" href="{{ url_for('index') }}"><i class="fa-solid fa-arrow-rotate-right"></i> Refresh</a>
           </div>
 
-          {% if files %}
-            <div class="table-wrapper">
-              <table>
-                <thead>
-                  <tr><th>File</th><th>Rows</th><th>Columns</th><th>Action</th></tr>
-                </thead>
-                <tbody>
-                  {% for file in files %}
-                    <tr>
-                      <td>{{ file.name }}</td>
-                      <td>{{ file.row_count }}</td>
-                      <td>{{ file.column_count }}</td>
-                      <td><a href="{{ url_for('view_file', directory=label, filename=file.name) }}">View</a></td>
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
+          {% for label, files in files_by_dir.items() %}
+            <div style="margin-top: 24px;">
+              <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;margin-bottom:12px;">
+                <h3 style="margin:0;">{{ label }}</h3>
+                {% if files %}<span class="tag">Latest: {{ files[0].name }}</span>{% endif %}
+              </div>
+
+              {% if files %}
+                <div class="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr><th>File</th><th>Rows</th><th>Columns</th><th>Action</th></tr>
+                    </thead>
+                    <tbody>
+                      {% for file in files %}
+                        <tr>
+                          <td>{{ file.name }}</td>
+                          <td>{{ file.row_count }}</td>
+                          <td>{{ file.column_count }}</td>
+                          <td>
+                            <a href="{{ url_for('view_file', directory=label, filename=file.name) }}">View</a>
+                            ·
+                            <a href="{{ url_for('download_file', directory=label, filename=file.name) }}">Download</a>
+                          </td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              {% else %}
+                <div class="empty-state">Tidak ada file CSV ditemukan di <strong>{{ label }}</strong>. Silakan download atau letakkan CSV di folder yang sesuai.</div>
+              {% endif %}
             </div>
-          {% else %}
-            <div class="empty-state">
-              No CSV files found in <strong>{{ label }}</strong>. Place CSV exports in the corresponding directory and refresh.
+          {% endfor %}
+        </div>
+      </section>
+
+      <section id="crawl-tweets" class="tab-panel">
+        <div class="section-card">
+          <div style="display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; align-items:center;">
+            <div>
+              <h2>Crawl Tweets</h2>
+              <p style="margin:0; color:#475569;">Masukkan keyword dan rentang tanggal penuh untuk memulai proses crawling tweet.</p>
             </div>
-          {% endif %}
-        </section>
-      {% endfor %}
+            <span class="tag"><i class="fa-solid fa-calendar-days"></i> Date range support</span>
+          </div>
+
+          <form action="{{ url_for('crawl_target', target='tweets') }}" method="get">
+            <div class="form-grid">
+              <div class="form-field">
+                <label for="keyword">Keyword pencarian</label>
+                <input id="keyword" name="keyword" type="text" placeholder="contoh: (Kemenlu OR @menluRI)" value="{{ request.args.get('keyword', '') }}" />
+              </div>
+              <div class="form-field">
+                <label for="start_date">Tanggal mulai</label>
+                <input id="start_date" name="start_date" type="date" value="{{ request.args.get('start_date', '2024-01-01') }}" />
+              </div>
+              <div class="form-field">
+                <label for="end_date">Tanggal selesai</label>
+                <input id="end_date" name="end_date" type="date" value="{{ request.args.get('end_date', '2025-12-31') }}" />
+              </div>
+              <div class="form-field">
+                <label for="tweet_limit">Limit tweet per query</label>
+                <input id="tweet_limit" name="tweet_limit" type="number" min="100" placeholder="15000" value="15000" />
+              </div>
+              <div class="form-field">
+                <label for="output_dir">Output folder (optional)</label>
+                <input id="output_dir" name="output_dir" type="text" placeholder="tweets-data" value="tweets-data" />
+              </div>
+              <div class="form-field">
+                <label for="gdrive_dir">Google Drive folder (optional)</label>
+                <input id="gdrive_dir" name="gdrive_dir" type="text" placeholder="/content/drive/MyDrive/dataset/TH/BT/" value="" />
+              </div>
+            </div>
+            <div class="form-actions">
+              <button class="button primary" type="submit"><i class="fa-solid fa-play"></i> Start Tweet Crawl</button>
+              <button class="button secondary" type="reset"><i class="fa-solid fa-eraser"></i> Reset Form</button>
+            </div>
+          </form>
+
+          <div class="help-box">
+            <div><i class="fa-solid fa-circle-info"></i></div>
+            <div>
+              <strong>Tip:</strong> gunakan format tanggal <code>YYYY-MM-DD</code> untuk rentang waktu. Jika field kosong, crawler akan menggunakan default internal.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="crawl-comments" class="tab-panel">
+        <div class="section-card">
+          <div style="display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; align-items:center;">
+            <div>
+              <h2>Crawl Thread Comments</h2>
+              <p style="margin:0; color:#475569;">Gunakan file CSV tweet yang berisi kolom <code>tweet_url</code> untuk mengambil komentar thread berdasarkan urutan retweet tertinggi.</p>
+            </div>
+            <span class="tag"><i class="fa-solid fa-link"></i> thread URL</span>
+          </div>
+
+          <form action="{{ url_for('crawl_target', target='threads') }}" method="get">
+            <div class="form-grid">
+              <div class="form-field">
+                <label for="input_csv">Path CSV input</label>
+                <input id="input_csv" name="input_csv" type="text" placeholder="tweets-data/KemenluDynamicStance_part1.csv" value="" />
+              </div>
+              <div class="form-field">
+                <label for="max_threads">Max threads</label>
+                <input id="max_threads" name="max_threads" type="number" min="0" placeholder="0 = all" value="0" />
+              </div>
+              <div class="form-field">
+                <label for="tweet_limit">Limit per thread</label>
+                <input id="tweet_limit" name="tweet_limit" type="number" min="1" placeholder="15000" value="15000" />
+              </div>
+              <div class="form-field">
+                <label for="output_dir">Output folder (optional)</label>
+                <input id="output_dir" name="output_dir" type="text" placeholder="thread-comments" value="thread-comments" />
+              </div>
+              <div class="form-field">
+                <label for="gdrive_dir">Google Drive folder (optional)</label>
+                <input id="gdrive_dir" name="gdrive_dir" type="text" placeholder="/content/drive/MyDrive/dataset/TH/komen/" value="" />
+              </div>
+            </div>
+            <div class="form-actions">
+              <button class="button primary" type="submit"><i class="fa-solid fa-play"></i> Start Comments Crawl</button>
+              <button class="button secondary" type="reset"><i class="fa-solid fa-eraser"></i> Reset Form</button>
+            </div>
+          </form>
+
+          <div class="help-box">
+            <div><i class="fa-solid fa-circle-info"></i></div>
+            <div>
+              <strong>Note:</strong> isi <code>INPUT_CSV_PATH</code> dengan file CSV yang berisi kolom <code>tweet_url</code>. Kosongkan untuk menggunakan variabel environment default.
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
+
+    <script>
+      const tabButtons = document.querySelectorAll('.tab-button');
+      const tabPanels = document.querySelectorAll('.tab-panel');
+      tabButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+          const target = button.dataset.tab;
+          tabButtons.forEach((btn) => btn.classList.toggle('active', btn === button));
+          tabPanels.forEach((panel) => panel.classList.toggle('active', panel.id === target));
+        });
+      });
+    </script>
   </body>
 </html>
 """
@@ -196,6 +286,7 @@ VIEW_PAGE = """
   <head>
     <meta charset="utf-8">
     <title>Viewing {{ filename }}</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-H4s3iCkT2R+s4xqyTnUSvkpOTn6fiMpYt32kRm1XQnZcj2/jz4WBOJjCustPaG7j4ZpDYEW5nAXjCeuX7+LZ2w==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
       :root {
         color-scheme: light;
@@ -212,6 +303,9 @@ VIEW_PAGE = """
       .meta strong { color: #0f172a; }
       a { color: #2563eb; text-decoration: none; }
       a:hover { text-decoration: underline; }
+      .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 16px; border-radius: 12px; border: none; background: #e2e8f0; color: #334155; text-decoration: none; font-weight: 600; }
+      .button.secondary { background: #e2e8f0; }
+      .button.secondary:hover { background: #cbd5e1; }
       .table-wrapper { overflow-x: auto; }
       table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 20px; }
       th, td { text-align: left; padding: 14px 16px; }
@@ -229,6 +323,7 @@ VIEW_PAGE = """
           <p><strong>Directory:</strong> {{ directory }}</p>
           <p><strong>Rows:</strong> {{ row_count }}</p>
           <p><strong>Columns:</strong> {{ column_count }}</p>
+          <p><a class="button secondary" href="{{ url_for('download_file', directory=directory, filename=filename) }}"><i class="fa-solid fa-download"></i> Download CSV</a></p>
           <p><a href="{{ url_for('index') }}">Back to dashboard</a></p>
         </div>
 
@@ -296,7 +391,11 @@ CRAWL_PAGE = """
         <p>{{ message }}</p>
         <div class="status {{ 'error' if error else '' }}">
           <strong>Status:</strong> {{ status }}</div>
-        <p><strong>Log file:</strong> {{ log_file }}</p>
+        <p><strong>Log file:</strong> {{ log_file }}{% if log_link %} · <a href="{{ log_link }}">View recent log</a>{% endif %}</p>
+        {% if log_preview %}
+          <h2>Recent log output</h2>
+          <pre>{{ log_preview }}</pre>
+        {% endif %}
         <p><a href="{{ url_for('index') }}">Back to dashboard</a></p>
       </div>
     </div>
@@ -319,8 +418,8 @@ def ensure_log_dir() -> None:
 def start_crawl(
     target: str,
     keyword: str = "",
-    start_year: str = "",
-    end_year: str = "",
+    start_date: str = "",
+    end_date: str = "",
     input_csv: str = "",
     max_threads: str = "",
     tweet_limit: str = "",
@@ -337,15 +436,19 @@ def start_crawl(
 
     env = os.environ.copy()
     if target == "tweets":
-        if keyword or start_year or end_year:
+        if keyword or start_date or end_date:
             query_text = keyword.strip() or '("Kemenlu" OR "@menluRI")'
-            if start_year or end_year:
-                start = start_year or end_year
-                end = end_year or start_year
-                query_text = f"{query_text} since:{start}-01-01 until:{end}-12-31"
+            if start_date or end_date:
+                start = start_date or end_date
+                end = end_date or start_date
+                query_text = f"{query_text} since:{start} until:{end}"
             if "lang:" not in query_text:
                 query_text = f"{query_text} lang:id"
             env["SEARCH_QUERIES"] = query_text
+        if output_dir:
+            env["OUTPUT_DIR"] = output_dir.strip()
+        if gdrive_dir:
+            env["GDRIVE_DIR"] = gdrive_dir.strip()
     elif target == "threads":
         if input_csv:
             env["INPUT_CSV_PATH"] = input_csv.strip()
@@ -425,6 +528,14 @@ def resolve_csv_path(directory: str, filename: str) -> Path:
     return target_path
 
 
+def read_last_lines(file_path: Path, line_count: int = 20) -> str:
+    try:
+        with file_path.open("r", encoding="utf-8", errors="ignore") as f:
+            return "".join(deque(f, maxlen=line_count))
+    except Exception:
+        return ""
+
+
 @app.route("/")
 def index() -> str:
     files_by_dir = list_csv_files()
@@ -435,8 +546,8 @@ def index() -> str:
 @app.route("/crawl/<target>")
 def crawl_target(target: str) -> str:
     keyword = request.args.get("keyword", "").strip()
-    start_year = request.args.get("start_year", "").strip()
-    end_year = request.args.get("end_year", "").strip()
+    start_date = request.args.get("start_date", "").strip()
+    end_date = request.args.get("end_date", "").strip()
     input_csv = request.args.get("input_csv", "").strip()
     max_threads = request.args.get("max_threads", "").strip()
     tweet_limit = request.args.get("tweet_limit", "").strip()
@@ -447,8 +558,8 @@ def crawl_target(target: str) -> str:
         script_name, log_file, started = start_crawl(
             target,
             keyword=keyword,
-            start_year=start_year,
-            end_year=end_year,
+            start_date=start_date,
+            end_date=end_date,
             input_csv=input_csv,
             max_threads=max_threads,
             tweet_limit=tweet_limit,
@@ -459,8 +570,8 @@ def crawl_target(target: str) -> str:
         message = f"The crawler script {script_name} is running in the background."
         if target == "tweets" and keyword:
             message += f" Search keyword: {keyword}."
-        if target == "tweets" and start_year and end_year:
-            message += f" Range: {start_year}–{end_year}."
+        if target == "tweets" and start_date and end_date:
+            message += f" Range: {start_date}–{end_date}."
         if target == "threads" and input_csv:
             message += f" Input CSV: {input_csv}."
         if target == "threads" and max_threads:
@@ -482,13 +593,67 @@ def crawl_target(target: str) -> str:
         log_file = "n/a"
         error = True
 
+    log_link = None
+    log_preview = ""
+    if not error and log_file != "n/a":
+        log_link = url_for("view_crawl_log", target=target)
+        log_path = CRAWL_LOG_DIR / f"{target}_crawl.log"
+        log_preview = read_last_lines(log_path, line_count=20)
+
     return render_template_string(
         CRAWL_PAGE,
         target_name=target.replace("_", " ").title(),
         status=status,
         message=message,
         log_file=log_file,
+        log_link=log_link,
+        log_preview=log_preview,
         error=error,
+    )
+
+
+@app.route("/download")
+def download_file() -> object:
+    directory = request.args.get("directory", "")
+    filename = request.args.get("filename", "")
+    if not filename:
+        return redirect(url_for("index"))
+    try:
+        csv_path = resolve_csv_path(directory, filename)
+    except FileNotFoundError:
+        abort(404)
+
+    return send_file(
+        str(csv_path),
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+@app.route("/crawl-log/<target>")
+def view_crawl_log(target: str) -> str:
+    log_path = CRAWL_LOG_DIR / f"{target}_crawl.log"
+    if not log_path.exists():
+        return render_template_string(
+            CRAWL_PAGE,
+            target_name=target.replace("_", " ").title(),
+            status="Log not available.",
+            message="No log file exists yet.",
+            log_file="n/a",
+            log_link=None,
+            log_preview="",
+            error=True,
+        )
+    return render_template_string(
+        CRAWL_PAGE,
+        target_name=target.replace("_", " ").title(),
+        status="Showing recent log.",
+        message=f"Displaying the latest log entries for {target}.",
+        log_file=log_path.name,
+        log_link=None,
+        log_preview=read_last_lines(log_path, line_count=100),
+        error=False,
     )
 
 
