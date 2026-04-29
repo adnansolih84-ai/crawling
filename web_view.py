@@ -428,10 +428,14 @@ CRAWL_PAGE = """
       .success { background: #dcfce7; color: #166534; }
       .info-box { display: flex; gap: 14px; align-items: start; padding: 18px; border-radius: 18px; background: #eff6ff; border: 1px solid #dbeafe; color: #1d4ed8; margin: 16px 0; }
       .info-box strong { color: #1e40af; }
+      .metrics-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); margin: 18px 0; }
+      .metric-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 18px; padding: 18px; }
+      .metric-card span { display: block; color: #475569; font-size: 0.95rem; margin-bottom: 10px; }
+      .metric-card p { margin: 0; font-size: clamp(1.8rem, 2.2vw, 2.2rem); font-weight: 700; color: #0f172a; }
       .progress-container { margin: 20px 0; }
       .progress-bar { width: 100%; height: 20px; background: #e2e8f0; border-radius: 10px; overflow: hidden; margin: 8px 0; }
       .progress-fill { height: 100%; background: linear-gradient(90deg, #2563eb, #3b82f6); transition: width 0.3s ease; border-radius: 10px; }
-      .progress-text { font-size: 0.9rem; color: #64748b; text-align: center; margin-top: 4px; }
+      .progress-text { font-size: 0.95rem; color: #475569; text-align: center; margin-top: 4px; }
       .log-section { margin-top: 24px; }
       .log-toggle { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 16px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; width: 100%; }
       .log-toggle:hover { background: #f1f5f9; }
@@ -466,11 +470,26 @@ CRAWL_PAGE = """
         </div>
 
         {% if not error %}
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <span>Tweets terkumpul</span>
+            <p>{{ progress.current_rows_str }}</p>
+          </div>
+          <div class="metric-card">
+            <span>Target per query</span>
+            <p>{{ progress.target_per_query_str }}</p>
+          </div>
+          <div class="metric-card">
+            <span>Partial CSV files</span>
+            <p>{{ progress.partial_files }}</p>
+          </div>
+        </div>
+
         <div class="progress-container">
           <div class="progress-bar">
-            <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+            <div class="progress-fill" id="progressFill" style="width: {{ progress.percent }}%"></div>
           </div>
-          <div class="progress-text" id="progressText">Memulai proses crawling...</div>
+          <div class="progress-text" id="progressText">{{ progress.message }}</div>
         </div>
         {% endif %}
 
@@ -499,7 +518,6 @@ CRAWL_PAGE = """
 
     <script>
       let progressInterval;
-      let currentProgress = 0;
 
       function toggleLog() {
         const content = document.getElementById('logContent');
@@ -522,35 +540,9 @@ CRAWL_PAGE = """
       }
 
       {% if not error %}
-      // Simulate progress for better UX
-      function updateProgress() {
-        if (currentProgress < 90) {
-          currentProgress += Math.random() * 5;
-          if (currentProgress > 90) currentProgress = 90;
-
-          document.getElementById('progressFill').style.width = currentProgress + '%';
-
-          const messages = [
-            '🔍 Sedang mencari tweet terkait...',
-            '📦 Mengunduh metadata tweet...',
-            '💾 Menyimpan data ke file CSV...',
-            '🔄 Memproses hasil crawling...',
-            '✅ Finalizing data...'
-          ];
-
-          const messageIndex = Math.floor((currentProgress / 90) * messages.length);
-          document.getElementById('progressText').textContent = messages[Math.min(messageIndex, messages.length - 1)];
-        }
-      }
-
-      // Start progress animation
-      progressInterval = setInterval(updateProgress, 2000);
-
-      // Auto-refresh every 10 seconds
+      // Auto-refresh every 10 seconds so metrics update with new CSV output.
       setTimeout(() => {
-        if (!{{ 'true' if error else 'false' }}) {
-          refreshPage();
-        }
+        refreshPage();
       }, 10000);
       {% endif %}
     </script>
@@ -673,6 +665,48 @@ def get_csv_metadata(csv_path: Path) -> tuple[int, int]:
         return 0, 0
 
 
+def get_csv_row_count(csv_path: Path) -> int:
+    try:
+        with csv_path.open("r", encoding="utf-8", errors="ignore") as f:
+            return max(sum(1 for _ in f) - 1, 0)
+    except Exception:
+        return 0
+
+
+def get_crawl_progress(target: str, output_dir: str, tweet_limit: str) -> dict:
+    if target != "tweets":
+        return {
+            "current_rows": 0,
+            "current_rows_str": "0",
+            "target_per_query": 0,
+            "target_per_query_str": "0",
+            "partial_files": 0,
+            "percent": 0,
+            "message": "Progress metrics are only available for tweet crawls.",
+        }
+
+    path = BASE_DIR / (output_dir.strip() or "tweets-data")
+    csv_paths = sorted(path.glob("*.csv")) if path.exists() else []
+    current_rows = sum(get_csv_row_count(csv_path) for csv_path in csv_paths)
+    target_per_query = int(tweet_limit) if tweet_limit.isdigit() and int(tweet_limit) > 0 else DEFAULT_LIMIT
+    percent = min(100, int((current_rows / target_per_query) * 100)) if target_per_query else 0
+    message = (
+        f"Telah mengumpulkan {current_rows:,} tweet dari target per query {target_per_query:,}."
+        if current_rows > 0
+        else "Belum ada file CSV partial yang terdeteksi. Silakan refresh setelah proses berjalan beberapa detik."
+    )
+
+    return {
+        "current_rows": current_rows,
+        "current_rows_str": f"{current_rows:,}",
+        "target_per_query": target_per_query,
+        "target_per_query_str": f"{target_per_query:,}",
+        "partial_files": len(csv_paths),
+        "percent": percent,
+        "message": message,
+    }
+
+
 def resolve_csv_path(directory: str, filename: str) -> Path:
     if directory not in DATA_DIRS:
         raise FileNotFoundError("Directory not permitted.")
@@ -781,6 +815,8 @@ def crawl_target(target: str) -> str:
         log_path = CRAWL_LOG_DIR / f"{target}_crawl.log"
         log_preview = read_last_lines(log_path, line_count=20)
 
+    progress = get_crawl_progress(target, output_dir, tweet_limit)
+
     return render_template_string(
         CRAWL_PAGE,
         target_name=target.replace("_", " ").title(),
@@ -796,6 +832,7 @@ def crawl_target(target: str) -> str:
         end_date=end_date,
         input_csv=input_csv,
         started=started if 'started' in locals() else False,
+        progress=progress,
     )
 
 
