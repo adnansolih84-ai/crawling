@@ -39,6 +39,21 @@ export TWITTER_AUTH_TOKEN="..."
 
 5. Jika menggunakan Google Drive di environment seperti Colab atau Codespaces, pastikan path `GDRIVE_DIR` sudah benar.
 
+## Dependensi Sistem untuk tweet-harvest
+Crawler menggunakan `tweet-harvest` yang memerlukan Chromium browser. Jika terjadi error "libatk-1.0.so.0: cannot open shared object file", install paket sistem berikut:
+
+### Ubuntu/Debian:
+```bash
+sudo apt-get update
+sudo apt-get install -y libatk1.0-0 libatk-bridge2.0-0 libcups2 libxss1 libx11-xcb1 libdrm2 libgtk-3-0 libnss3 libgbm1 libasound2
+```
+
+### Ubuntu 24.04 (versi paket t64):
+```bash
+sudo apt-get update
+sudo apt-get install -y libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libgtk-3-0t64 libasound2t64 libxss1 libx11-xcb1 libdrm2 libnss3 libgbm1 libxkbcommon0
+```
+
 ## Menjalankan Dashboard
 Untuk menampilkan dashboard dan melihat hasil CSV:
 

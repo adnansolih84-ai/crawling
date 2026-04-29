@@ -9,8 +9,12 @@ import os
 import subprocess
 from collections import deque
 
+from dotenv import load_dotenv
 import pandas as pd
 from flask import Flask, abort, redirect, render_template_string, request, send_file, url_for
+
+# Load .env from script directory
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIRS: Dict[str, Path] = {
@@ -147,6 +151,8 @@ INDEX_PAGE = """
                           <td>{{ file.row_count }}</td>
                           <td>{{ file.column_count }}</td>
                           <td>
+                            <a href="{{ url_for('index', preview_directory=label, preview_filename=file.name) }}">Preview</a>
+                            ·
                             <a href="{{ url_for('view_file', directory=label, filename=file.name) }}">View</a>
                             ·
                             <a href="{{ url_for('download_file', directory=label, filename=file.name) }}">Download</a>
@@ -161,6 +167,42 @@ INDEX_PAGE = """
               {% endif %}
             </div>
           {% endfor %}
+
+          {% if preview and preview.columns %}
+            <div class="section-card">
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:18px;">
+                <div>
+                  <h2>Preview: {{ preview.filename }}</h2>
+                  <p style="margin:0; color:#475569;">Directory: <strong>{{ preview.directory }}</strong> · Rows: <strong>{{ preview.row_count }}</strong> · Columns: <strong>{{ preview.column_count }}</strong></p>
+                </div>
+                <a class="button secondary" href="{{ url_for('index') }}"><i class="fa-solid fa-xmark"></i> Clear Preview</a>
+              </div>
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      {% for column in preview.columns %}
+                        <th>{{ column }}</th>
+                      {% endfor %}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in preview.rows %}
+                      <tr>
+                        {% for value in row %}
+                          <td>{{ value }}</td>
+                        {% endfor %}
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          {% elif preview %}
+            <div class="section-card">
+              <div class="empty-state">Preview requested for {{ preview.filename }}, but no rows are available.</div>
+            </div>
+          {% endif %}
         </div>
       </section>
 
@@ -365,6 +407,7 @@ CRAWL_PAGE = """
   <head>
     <meta charset="utf-8">
     <title>Crawl {{ target_name }}</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-H4s3iCkT2R+s4xqyTnUSvkpOTn6fiMpYt32kRm1XQnZcj2/jz4WBOJjCustPaG7j4ZpDYEW5nAXjCeuX7+LZ2w==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
       :root {
         color-scheme: light;
@@ -377,28 +420,140 @@ CRAWL_PAGE = """
       .panel { background: white; border-radius: 24px; box-shadow: 0 24px 60px rgba(15, 23, 42, 0.08); padding: 24px; }
       h1 { margin-top: 0; font-size: clamp(1.8rem, 2.3vw, 2.6rem); }
       p { color: #475569; line-height: 1.7; }
-      pre { background: #f8fafc; border-radius: 16px; padding: 18px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+      pre { background: #f8fafc; border-radius: 16px; padding: 18px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto; }
       a { color: #2563eb; text-decoration: none; }
       a:hover { text-decoration: underline; }
       .status { display: inline-flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 14px; background: #e0f2fe; color: #0c4a6e; margin: 16px 0; }
       .error { background: #fee2e2; color: #991b1b; }
+      .success { background: #dcfce7; color: #166534; }
+      .info-box { display: flex; gap: 14px; align-items: start; padding: 18px; border-radius: 18px; background: #eff6ff; border: 1px solid #dbeafe; color: #1d4ed8; margin: 16px 0; }
+      .info-box strong { color: #1e40af; }
+      .progress-container { margin: 20px 0; }
+      .progress-bar { width: 100%; height: 20px; background: #e2e8f0; border-radius: 10px; overflow: hidden; margin: 8px 0; }
+      .progress-fill { height: 100%; background: linear-gradient(90deg, #2563eb, #3b82f6); transition: width 0.3s ease; border-radius: 10px; }
+      .progress-text { font-size: 0.9rem; color: #64748b; text-align: center; margin-top: 4px; }
+      .log-section { margin-top: 24px; }
+      .log-toggle { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 16px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; width: 100%; }
+      .log-toggle:hover { background: #f1f5f9; }
+      .log-content { display: none; margin-top: 12px; }
+      .log-content.expanded { display: block; }
+      .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 16px; border-radius: 12px; border: none; background: #e2e8f0; color: #334155; text-decoration: none; font-weight: 600; cursor: pointer; }
+      .button:hover { background: #cbd5e1; }
+      .button.primary { background: #2563eb; color: white; }
+      .button.primary:hover { background: #1d4ed8; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+      .pulse { animation: pulse 2s infinite; }
     </style>
   </head>
   <body>
     <div class="page-shell">
       <div class="panel">
-        <h1>Crawl {{ target_name }}</h1>
-        <p>{{ message }}</p>
-        <div class="status {{ 'error' if error else '' }}">
-          <strong>Status:</strong> {{ status }}</div>
-        <p><strong>Log file:</strong> {{ log_file }}{% if log_link %} · <a href="{{ log_link }}">View recent log</a>{% endif %}</p>
-        {% if log_preview %}
-          <h2>Recent log output</h2>
-          <pre>{{ log_preview }}</pre>
+        <h1><i class="fa-solid fa-spider"></i> Crawl {{ target_name }}</h1>
+
+        <div class="info-box">
+          <div><i class="fa-solid fa-circle-info"></i></div>
+          <div>
+            <strong>Script:</strong> <code>{{ script_name }}</code> sedang berjalan di background.
+            {% if keyword %}<br><strong>Keyword:</strong> <code>{{ keyword }}</code>{% endif %}
+            {% if start_date and end_date %}<br><strong>Range:</strong> {{ start_date }} – {{ end_date }}{% endif %}
+            {% if input_csv %}<br><strong>Input CSV:</strong> {{ input_csv }}{% endif %}
+          </div>
+        </div>
+
+        <div class="status {{ 'error' if error else 'success' if not error and started else '' }}">
+          <i class="fa-solid {{ 'fa-exclamation-triangle' if error else 'fa-check-circle' if not error and started else 'fa-spinner fa-spin' }}"></i>
+          <strong>Status:</strong> {{ status }}
+        </div>
+
+        {% if not error %}
+        <div class="progress-container">
+          <div class="progress-bar">
+            <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+          </div>
+          <div class="progress-text" id="progressText">Memulai proses crawling...</div>
+        </div>
         {% endif %}
-        <p><a href="{{ url_for('index') }}">Back to dashboard</a></p>
+
+        <p><strong>Log file:</strong> {{ log_file }}{% if log_link %} · <a href="{{ log_link }}">View recent log</a>{% endif %}</p>
+
+        {% if log_preview %}
+        <div class="log-section">
+          <button class="log-toggle" onclick="toggleLog()">
+            <span><i class="fa-solid fa-terminal"></i> Recent log output</span>
+            <i class="fa-solid fa-chevron-down" id="logIcon"></i>
+          </button>
+          <div class="log-content" id="logContent">
+            <pre>{{ log_preview }}</pre>
+          </div>
+        </div>
+        {% endif %}
+
+        <div style="margin-top: 24px;">
+          <a class="button primary" href="{{ url_for('index') }}"><i class="fa-solid fa-arrow-left"></i> Back to Dashboard</a>
+          {% if not error %}
+          <button class="button" onclick="refreshPage()" style="margin-left: 12px;"><i class="fa-solid fa-refresh"></i> Refresh Status</button>
+          {% endif %}
+        </div>
       </div>
     </div>
+
+    <script>
+      let progressInterval;
+      let currentProgress = 0;
+
+      function toggleLog() {
+        const content = document.getElementById('logContent');
+        const icon = document.getElementById('logIcon');
+        const isExpanded = content.classList.contains('expanded');
+
+        if (isExpanded) {
+          content.classList.remove('expanded');
+          icon.classList.remove('fa-chevron-up');
+          icon.classList.add('fa-chevron-down');
+        } else {
+          content.classList.add('expanded');
+          icon.classList.remove('fa-chevron-down');
+          icon.classList.add('fa-chevron-up');
+        }
+      }
+
+      function refreshPage() {
+        window.location.reload();
+      }
+
+      {% if not error %}
+      // Simulate progress for better UX
+      function updateProgress() {
+        if (currentProgress < 90) {
+          currentProgress += Math.random() * 5;
+          if (currentProgress > 90) currentProgress = 90;
+
+          document.getElementById('progressFill').style.width = currentProgress + '%';
+
+          const messages = [
+            '🔍 Sedang mencari tweet terkait...',
+            '📦 Mengunduh metadata tweet...',
+            '💾 Menyimpan data ke file CSV...',
+            '🔄 Memproses hasil crawling...',
+            '✅ Finalizing data...'
+          ];
+
+          const messageIndex = Math.floor((currentProgress / 90) * messages.length);
+          document.getElementById('progressText').textContent = messages[Math.min(messageIndex, messages.length - 1)];
+        }
+      }
+
+      // Start progress animation
+      progressInterval = setInterval(updateProgress, 2000);
+
+      // Auto-refresh every 10 seconds
+      setTimeout(() => {
+        if (!{{ 'true' if error else 'false' }}) {
+          refreshPage();
+        }
+      }, 10000);
+      {% endif %}
+    </script>
   </body>
 </html>
 """
@@ -540,7 +695,33 @@ def read_last_lines(file_path: Path, line_count: int = 20) -> str:
 def index() -> str:
     files_by_dir = list_csv_files()
     summary = build_dashboard_summary(files_by_dir)
-    return render_template_string(INDEX_PAGE, files_by_dir=files_by_dir, summary=summary)
+
+    preview_directory = request.args.get("preview_directory", "").strip()
+    preview_filename = request.args.get("preview_filename", "").strip()
+    preview = None
+
+    if preview_directory and preview_filename:
+        try:
+            csv_path = resolve_csv_path(preview_directory, preview_filename)
+            df_preview = pd.read_csv(csv_path, dtype=str, nrows=20)
+            row_count, column_count = get_csv_metadata(csv_path)
+            preview = {
+                "filename": preview_filename,
+                "directory": preview_directory,
+                "row_count": row_count,
+                "column_count": column_count,
+                "columns": df_preview.columns.tolist(),
+                "rows": df_preview.fillna("").values.tolist(),
+            }
+        except Exception:
+            preview = {"filename": preview_filename, "directory": preview_directory, "columns": [], "rows": []}
+
+    return render_template_string(
+        INDEX_PAGE,
+        files_by_dir=files_by_dir,
+        summary=summary,
+        preview=preview,
+    )
 
 
 @app.route("/crawl/<target>")
@@ -609,6 +790,12 @@ def crawl_target(target: str) -> str:
         log_link=log_link,
         log_preview=log_preview,
         error=error,
+        script_name=script_name if 'script_name' in locals() else CRAWL_SCRIPTS.get(target, ""),
+        keyword=keyword,
+        start_date=start_date,
+        end_date=end_date,
+        input_csv=input_csv,
+        started=started if 'started' in locals() else False,
     )
 
 
@@ -644,6 +831,12 @@ def view_crawl_log(target: str) -> str:
             log_link=None,
             log_preview="",
             error=True,
+            script_name=CRAWL_SCRIPTS.get(target, ""),
+            keyword="",
+            start_date="",
+            end_date="",
+            input_csv="",
+            started=False,
         )
     return render_template_string(
         CRAWL_PAGE,
@@ -654,6 +847,12 @@ def view_crawl_log(target: str) -> str:
         log_link=None,
         log_preview=read_last_lines(log_path, line_count=100),
         error=False,
+        script_name=CRAWL_SCRIPTS.get(target, ""),
+        keyword="",
+        start_date="",
+        end_date="",
+        input_csv="",
+        started=False,
     )
 
 
@@ -687,4 +886,5 @@ def view_file() -> str:
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)

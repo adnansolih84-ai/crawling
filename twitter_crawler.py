@@ -24,7 +24,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
+from dotenv import load_dotenv
 import pandas as pd
+
+# Load .env from script directory
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 try:
     from langdetect import detect, LangDetectException
@@ -74,9 +78,13 @@ def build_query_list() -> List[str]:
     return DEFAULT_QUERIES
 
 
-def run_command(command: str) -> int:
+def run_command(command: str) -> tuple[int, str]:
     print(f"Running: {command}")
-    return subprocess.run(command, shell=True).returncode
+    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+    output = result.stdout + result.stderr
+    if result.returncode != 0:
+        print(output)
+    return result.returncode, output
 
 
 def build_output_filename(base: str, part: int) -> str:
@@ -147,8 +155,13 @@ def main() -> int:
             f'--token {shlex.quote(TWITTER_AUTH_TOKEN)}'
         )
 
-        exit_code = run_command(command)
+        exit_code, output = run_command(command)
         if exit_code != 0:
+            if "libatk-1.0.so.0" in output or "cannot open shared object file" in output:
+                print(
+                    "Error: Chromium dependencies are missing for tweet-harvest. "
+                    "Install system packages like libatk1.0-0, libatk-bridge2.0-0, libcups2, libxss1, libx11-xcb1, libdrm2, libgtk-3-0, libnss3."
+                )
             print(f"Warning: tweet-harvest exited with code {exit_code} for query #{index}")
             continue
 
