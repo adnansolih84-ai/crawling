@@ -150,7 +150,7 @@ def main() -> int:
         local_path = output_dir / filename
 
         command = (
-            f'npx -y tweet-harvest@2.6.1 -o {shlex.quote(str(local_path))} '
+            f'npx -y tweet-harvest@latest -o {shlex.quote(str(local_path))} '
             f'-s {shlex.quote(query)} --tab LATEST -l {DEFAULT_LIMIT} '
             f'--token {shlex.quote(TWITTER_AUTH_TOKEN)}'
         )
