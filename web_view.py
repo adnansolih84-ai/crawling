@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usn/env python3
 """Dashboard and CSV viewer for glowing-giggle crawl outputs."""
 
 from __future__ import annotations
@@ -224,11 +224,11 @@ INDEX_PAGE = """
               </div>
               <div class="form-field">
                 <label for="start_date">Tanggal mulai</label>
-                <input id="start_date" name="start_date" type="date" value="{{ request.args.get('start_date', '2024-01-01') }}" />
+                <input id="start_date" name="start_date" type="date" value="{{ request.args.get('start_date', '2026-01-01') }}" />
               </div>
               <div class="form-field">
                 <label for="end_date">Tanggal selesai</label>
-                <input id="end_date" name="end_date" type="date" value="{{ request.args.get('end_date', '2025-12-31') }}" />
+                <input id="end_date" name="end_date" type="date" value="{{ request.args.get('end_date', '2026-12-31') }}" />
               </div>
               <div class="form-field">
                 <label for="tweet_limit">Limit tweet per query</label>
