@@ -18,7 +18,7 @@ import pandas as pd
 # Load .env from script directory
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
-TWITTER_AUTH_TOKEN = os.environ.get("TWITTER_AUTH_TOKEN")
+TWITTER_AUTH_TOKEN = os.environ.get("TWITTER_AUTH_TOKEN") or os.environ.get("twitter_auth_token")
 INPUT_CSV_PATH = os.environ.get("INPUT_CSV_PATH")
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "thread-comments")
 GDRIVE_DIR = os.environ.get("GDRIVE_DIR", "")

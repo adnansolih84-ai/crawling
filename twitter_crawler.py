@@ -38,7 +38,7 @@ except ModuleNotFoundError:
     LangDetectException = Exception
     LANGDETECT_AVAILABLE = False
 
-TWITTER_AUTH_TOKEN = os.environ.get("TWITTER_AUTH_TOKEN")
+TWITTER_AUTH_TOKEN = os.environ.get("TWITTER_AUTH_TOKEN") or os.environ.get("twitter_auth_token")
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "tweets-data")
 GDRIVE_DIR = os.environ.get("GDRIVE_DIR", "")
 DEFAULT_LIMIT = int(os.environ.get("TWEET_LIMIT", "15000"))
